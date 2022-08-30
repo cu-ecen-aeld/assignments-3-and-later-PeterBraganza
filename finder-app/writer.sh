@@ -23,6 +23,7 @@ then
 	#checks if directory was made successfully otherwise exits with 1
 	if [ $? ]
 	then 
+		echo "Failed to create directory"
 		exit 1
 	fi
 fi
@@ -30,3 +31,9 @@ fi
 #overrides/replaces previous data in file
 echo $writestr > $writefile
 
+# checks if string was written into file
+if [ $? ]
+then 
+	echo "Failed to write into file"
+	exit 1
+fi
