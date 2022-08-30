@@ -1,5 +1,6 @@
 #!/bin/sh
 
+# References : https://linuxtect.com/recursive-mkdir-command-in-linux/#:~:text=The%20%2Dp%20option%20is%20used,of%20them%20are%20created%20automatically 
 
 #check if there are two arguments 
 if [ $# -ne 2 ]
