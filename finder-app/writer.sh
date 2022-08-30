@@ -1,19 +1,32 @@
 #!/bin/sh
 
-writefile=$1
-writestr=$2
 
+#check if there are two arguments 
 if [ $# -ne 2 ]
 then 
-	echo Number of Args are not correct
+	echo "Wrong number of args. Use 2 arguments"
 	exit 1
 fi
 
-if [ -d $writefile ]
+writefile=$1
+writestr=$2
+
+#get the directory from full path which includes file name also
+filedir=$(dirname $writefile)
+
+
+#checks is directory exist. if not creates the directory 
+if [ ! -d $filedir ]
 then
-	mkdir -p $writefile
+	mkdir -p $(dirname $filedir)
+	
+	#checks if directory was made successfully otherwise exits with 1
+	if [ $? ]
+	then 
+		exit 1
+	fi
 fi
 
-touch $writefile 
+#overrides/replaces previous data in file
+echo $writestr > $writefile
 
-echo $2 >> $1
