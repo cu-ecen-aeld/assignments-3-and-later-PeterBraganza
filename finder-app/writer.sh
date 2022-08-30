@@ -22,7 +22,7 @@ then
 	mkdir -p $(dirname $filedir)
 	
 	#checks if directory was made successfully otherwise exits with 1
-	if [ $? ]
+	if [ $? -ne 0 ]
 	then 
 		echo "Failed to create directory"
 		exit 1
@@ -33,7 +33,7 @@ fi
 echo $writestr > $writefile
 
 # checks if string was written into file
-if [ $? ]
+if [ $? -ne 0 ]
 then 
 	echo "Failed to write into file"
 	exit 1
