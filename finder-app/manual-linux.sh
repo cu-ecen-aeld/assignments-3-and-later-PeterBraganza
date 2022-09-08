@@ -8,7 +8,6 @@ set -u
 OUTDIR=/tmp/aeld
 KERNEL_REPO=git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git
 KERNEL_VERSION=v5.1.10
-BUSYBOX_REPO=
 BUSYBOX_VERSION=1_33_1
 FINDER_APP_DIR=$(realpath $(dirname $0))
 ARCH=arm64
@@ -25,11 +24,10 @@ fi
 mkdir -p ${OUTDIR}
 
 #fail if directory not created
-if [ $? ne 0 ]
+if [ $? -ne 0 ]
+then 
 	echo "Failed to created directory"
 	exit 1
-then 
-	
 fi 
 
 cd "$OUTDIR"
@@ -44,13 +42,17 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     git checkout ${KERNEL_VERSION}
 
     # TODO: Add your kernel build steps here
-    
-    make $(ARCH) $(CROSS_COMPILE)mrproper 
-    make $(ARCH) $(CROSS_COMPILE)defconfig
-    make -j4 $(ARCH) $(CROSS_COMPILE)all
-    make $(ARCH) $(CROSS_COMPILE)modules
-    make $(ARCH) $(CROSS_COMPILE)dtbs
-    
+    echo "Hello"
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper 
+    echo "Hello again"
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
+    echo "Hello once again"
+    make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all
+    echo "Hello one last  time"
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules
+    echo "Hello and once again"
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} dtbs
+    echo "Hello final"
 fi
 
 echo "Adding the Image in outdir"
@@ -89,7 +91,7 @@ fi
 
 # TODO: Make and install busybox
 
-sudo make $(ARCH) $(CROSS_COMPILE) install
+sudo make ${ARCH} ${CROSS_COMPILE} install
 
 echo "Library dependencies"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
@@ -110,7 +112,7 @@ cp -a ${SYSROOT}/lib/libm-2.22.so lib
 sudo mknod -m 666 dev/null c 1 3
 sudo mknod -m 600 dev/console c 5 1
 
-make $(ARCH) $(CROSS_COMPILE) INSTALL_MOD_PATH=${OUTDIR}/rootfs modules_install
+make ${ARCH} ${CROSS_COMPILE} INSTALL_MOD_PATH=${OUTDIR}/rootfs modules_install
 
 # TODO: Clean and build the writer utility
 cd ${FINDER_APP_DIR}
@@ -134,6 +136,8 @@ sudo chown -R root:root *
 # TODO: Create initramfs.cpio.gz
 
 find . | cpio -H newc -ov --owner root:root > ../initramfs.cpio
+find . | cpio -H newc -ov --owner root:root > initramfs.cpio
+
 cd ..
 gzip initramfs.cpio
 
