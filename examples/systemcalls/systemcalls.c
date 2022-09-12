@@ -1,8 +1,14 @@
 /*
 @file: systemcall.c
-@brief: takes 
+@brief: execuites commands either from system() through a combination of
+        fork() wait() pid.
+        
+@author: Peter Braganza
+@date: 9/3/22
 
-
+@references: https://github.com/torvalds/linux/commit/e33a814e772cdc36436c8c188d8c42d019fda639
+https://unix.stackexchange.com/questions/691923/error-message-here-end-kernel-panic-not-syncing-attempted-to-kill-init-exitc
+A lot from stack overflow.
 */
 #include "systemcalls.h"
 #include <sys/types.h>
@@ -22,7 +28,7 @@
 */
 bool do_system(const char *cmd)
 {
-	//check if system call succedded
+	//check if system call succeeded
 	if(system(cmd) == -1)
 		return false;
 
@@ -54,12 +60,8 @@ bool do_exec(int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
 
 /*
- * TODO:
  *   Execute a system command by calling fork, execv(),
  *   and wait instead of system (see LSP page 161).
  *   Use the command[0] as the full path to the command to execute
@@ -69,7 +71,7 @@ bool do_exec(int count, ...)
 */
 	
 	int status;
-	
+
 	pid_t pid;
 
 	pid = fork ();
@@ -82,10 +84,11 @@ bool do_exec(int count, ...)
 		execv (command[0], command);
 		exit(-1);
 	}
-	
+
 	if (waitpid (pid, &status, 0) == -1)
-    	return false;
-    
+	return false;
+
+	//Checks if child exited normally
 	if (WIFEXITED(status) == true)
 	{
 		if (WEXITSTATUS(status) != 0)
@@ -115,13 +118,8 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
-
 
 /*
- * TODO
  *   Call execv, but first using https://stackoverflow.com/a/13784315/1446624 as a refernce,
  *   redirect standard out to a file specified by outputfile.
  *   The rest of the behaviour is same as do_exec()
@@ -135,32 +133,34 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
 	
 	switch (kidpid = fork()) 
 	{
-		case -1: 
-			perror("fork"); 
-			return false;
+	case -1: 
+		perror("fork"); 
+		return false;
+	
+	case 0:
+		// redirecting stdio (fd == 1) to fd
+		if (dup2(fd, 1) < 0) 
+		{
+			perror("dup2"); 
+			abort(); 
+		}
+		close(fd);
+		execv (command[0], command);
+		exit(-1);
 		
-		case 0:
-			if (dup2(fd, 1) < 0) 
-			{
-				perror("dup2"); 
-				abort(); 
-			}
-			close(fd);
-			execv (command[0], command);
-			exit(-1);
+	default:
+		close(fd);
+		if (waitpid (kidpid, &status, 0) == -1)
+			return false;
 			
-		default:
-			close(fd);
-			if (waitpid (kidpid, &status, 0) == -1)
+		//Checks if child exited normally	
+		if (WIFEXITED(status) == true)
+		{
+			if (WEXITSTATUS(status) != 0)
 				return false;
-				
-			if (WIFEXITED(status) == true)
-			{
-				if (WEXITSTATUS(status) != 0)
-					return false;
-				else 
-					return true;
-			}
+			else 
+				return true;
+		}
 				
 	}
 
