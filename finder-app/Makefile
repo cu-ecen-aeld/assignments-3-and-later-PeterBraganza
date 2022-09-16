@@ -15,6 +15,7 @@ CFLAGS  = -Werror -Wall
 #selecting all needed source files
 SRC_FILES = *.c
 
+all: writer
 #clean:
 #	rm -f *.o writer
 
