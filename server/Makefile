@@ -2,9 +2,8 @@
 # used https://www.cs.swarthmore.edu/~newhall/unixhelp/howto_makefiles.html
 
 #selecting complier
-CC = gcc
-
-CROSS_COMPILE =
+CROSS_COMPILE=
+CC=gcc
 
 #selecting Targer file
 TARGET = aesdsocket
@@ -19,12 +18,12 @@ all: aesdsocket
 #clean:
 #	rm -f *.o writer
 
-SRCR: ${SRC_FILES}
-	${CROSS_COMPILE}${CC} ${CFLAGS} ${SRC_FILES} -o ${TARGET}
+$(TARGET): $(TARGET).c
+	$(CROSS_COMPILE)$(CC) $(CFLAGS) $(SRC_FILES) -o $(TARGET)
 	
 	
 clean:
-	rm -f *.o aesdsocket
+	rm -f *.o $(TARGET)
 	
 	
 
