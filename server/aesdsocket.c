@@ -272,6 +272,7 @@ int main(int argc, char *argv[])
         printf("Sent\n");
 
         close(local_fd);  // parent doesn't need this
+        close(new_fd);
         printf("file closed\n");
         free(buf);
         printf("buf freed\n");
