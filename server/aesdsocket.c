@@ -11,10 +11,13 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <time.h>
+#include <pthread.h>
+#include "queue.h"
+
 
 #define MYPORT "9000"  // the port users will be connecting to
 #define BACKLOG 10     // how many pending connections queue will hold
@@ -23,6 +26,37 @@
 bool signal_found = false;
 bool reading = false;
 int sockfd;
+
+
+typedef struct thread_data_s thread_data_t;
+
+struct thread_data_s{
+    /*
+     * adding other values your thread will need to manage
+     * into this structure, use this structure to communicate
+     * between the start_thread_obtaining_mutex function and
+     * your thread implementation.
+     */
+
+    pthread_t tid;
+
+    //new fd for each open socket
+    int sfd;
+
+    /**
+     * Set to true if the thread completed with success, false
+     * if an error occurred.
+     */
+    bool thread_complete_success;
+
+
+    SLIST_ENTRY(thread_data_s) entries;
+
+};
+
+thread_data_t *thread_list = NULL;
+
+
 
 
 static void signal_handler()
@@ -82,6 +116,88 @@ void write_to_file(int fd, void *buf, size_t buf_size)
 }
 
 
+void* thread_foo(void *thread_param)
+{
+
+    struct thread_data_s* thread_func_args = (struct thread_data_s *) thread_param;
+    reading = true;
+    // inet_ntop(their_addr.ss_family,
+    //     get_in_addr((struct sockaddr *)&their_addr),
+    //     s, sizeof s);
+    // printf("server: got connection from %s\n", s);
+
+    //int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, S_IRWXU |  S_IRWXG | S_IRWXO );
+    int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, 755);
+    printf("file opened\n");
+    int max_buf_size = BUF_SIZE;
+    char *buf = (char *)malloc(max_buf_size * sizeof(char));
+    int return_idx = 0;
+    int num_of_relloc = 0;
+    bool ret_found = false;
+
+    while ( !ret_found ) //return not found
+    {
+        if(recv(thread_func_args->sfd, buf + (num_of_relloc * BUF_SIZE), BUF_SIZE, 0) == - 1){
+            //log errors
+            printf("recv() failed\n");
+        }
+
+        return_idx = search_for_return(buf + (num_of_relloc * BUF_SIZE), BUF_SIZE);
+        if(return_idx == -1)
+        {
+            max_buf_size += BUF_SIZE;
+            buf = (char *)realloc(buf, max_buf_size * sizeof(char));
+            num_of_relloc++;
+        }
+        else
+        {
+            printf("writing to file\n");
+            write_to_file(local_fd, buf, max_buf_size - (BUF_SIZE - return_idx));
+            ret_found = true;
+            break;
+        }
+    }
+
+    int num_of_bytes = BUF_SIZE;
+    lseek(local_fd, 0, SEEK_SET);
+    char read_buf[BUF_SIZE];
+
+    printf("Attemping to read and send BUF_SIZE\n");
+    while(num_of_bytes == BUF_SIZE)
+    {
+        num_of_bytes = read(local_fd, read_buf, BUF_SIZE);
+        printf("num of bytes: %d\n", num_of_bytes);
+        send(thread_func_args->sfd , read_buf, num_of_bytes, 0);
+    }
+
+    close(local_fd);  // parent doesn't need this
+    
+    free(buf);
+    reading = false;
+
+    thread_func_args->thread_complete_success =  true;
+
+    printf("thread completed\n");
+
+    return thread_param;
+
+}
+
+
+// void alarm_handler (int signum)
+// {
+//     printf ("10 Seconds passed\n");
+
+//     //call
+//     /*       
+//     #include <time.h>
+
+//        size_t strftime(char *restrict s, size_t max,
+//                        const char *restrict format,
+//                        const struct tm *restrict tm);*/
+// }
+
+
 
 int main(int argc, char *argv[])
 {
@@ -97,6 +213,7 @@ int main(int argc, char *argv[])
     int rv;
     bool run_deamon = false;
     //char buf[BUF_SIZE];
+    printf("starting code\n");
 
     if(argc >= 2)
     {
@@ -200,6 +317,7 @@ int main(int argc, char *argv[])
     }
 
 
+    /*Fix this shit*/
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
@@ -207,11 +325,23 @@ int main(int argc, char *argv[])
     /*addr_size = sizeof their_addr;
     new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);*/
 
+    //signal (SIGALRM, alarm_handler);
+
+    //creating an alert for 10 seconds
+    //alarm (10);
+
+    SLIST_HEAD(slisthead, thread_data_s) head;
+    SLIST_INIT(&head);
+
     while(!signal_found) {  // main accept() loop
+
+        printf("inside while loop\n");
 
         sin_size = sizeof their_addr;
         //int num_of_bytes = 0;
+        printf("befored accepetd\n");
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
+        printf("afteraccepetd\n");
         if (new_fd == -1) {
             printf("in accept fail with int\n");
             if(errno == EINTR)
@@ -221,65 +351,37 @@ int main(int argc, char *argv[])
             perror("accept");
             continue;
         }
-        reading = true;
-        inet_ntop(their_addr.ss_family,
-            get_in_addr((struct sockaddr *)&their_addr),
-            s, sizeof s);
-        printf("server: got connection from %s\n", s);
 
-        //int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, S_IRWXU |  S_IRWXG | S_IRWXO );
-        int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, 755);
-        printf("file opened\n");
-        int max_buf_size = BUF_SIZE;
-        char *buf = (char *)malloc(max_buf_size * sizeof(char));
-        int return_idx = 0;
-        int num_of_relloc = 0;
-        bool ret_found = false;
 
-        while ( !ret_found ) //return not found
+        SLIST_FOREACH(thread_list, &head, entries)
         {
-            if(recv(new_fd, buf + (num_of_relloc * BUF_SIZE), BUF_SIZE, 0) == - 1){
-                //log errors
-                printf("recv() failed\n");
-            }
-
-            return_idx = search_for_return(buf + (num_of_relloc * BUF_SIZE), BUF_SIZE);
-            if(return_idx == -1)
+            if(thread_list->thread_complete_success == true)
             {
-                max_buf_size += BUF_SIZE;
-                buf = (char *)realloc(buf, max_buf_size * sizeof(char));
-                num_of_relloc++;
-            }
-            else
-            {
-                printf("writing to file\n");
-                write_to_file(local_fd, buf, max_buf_size - (BUF_SIZE - return_idx));
-                ret_found = true;
-                break;
+                close(thread_list->sfd);
+                pthread_join(thread_list->tid, NULL);
+                printf("removed\n");
+                //need to remove node 
             }
         }
 
-        int num_of_bytes = BUF_SIZE;
-        lseek(local_fd, 0, SEEK_SET);
-        char read_buf[BUF_SIZE];
+        printf("before malloc\n");
 
-        printf("Attemping to read and send BUF_SIZE\n");
-        while(num_of_bytes == BUF_SIZE)
+        thread_list = malloc(sizeof(thread_data_t));
+        thread_list->thread_complete_success = false;
+        thread_list->sfd = new_fd;
+        
+
+        int ret = pthread_create(&thread_list->tid, NULL, thread_foo, thread_list);
+        if (!ret)
         {
-            num_of_bytes = read(local_fd, read_buf, BUF_SIZE);
-            printf("num of bytes: %d\n", num_of_bytes);
-            send(new_fd , read_buf, num_of_bytes, 0);
+            SLIST_INSERT_HEAD(&head, thread_list, entries);
+            printf("Thread created\n");
         }
-        printf("Sent\n");
+        else{
+            printf("Thread not created\n");
 
-        close(local_fd);  // parent doesn't need this
-        close(new_fd);
-        printf("file closed\n");
-        free(buf);
-        printf("buf freed\n");
-        printf("signal found: %d", signal_found);
-        printf("buf freed\n");
-        reading = false;
+            //need to clean up
+        }
     }
 
     close(sockfd);
@@ -288,18 +390,3 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-
-
-
-
-
-
-/*
- b. Opens a stream socket bound to port 9000, failing and returning -1 if any of the socket connection steps fail.
-
-     c. Listens for and accepts a connection
-
-     d. Logs message to the syslog “Accepted connection from xxx” where XXXX is the IP address of the connected client. 
-
-     e. Receives data over the connection and appends to file /var/tmp/aesdsocketdata, creating this file if it doesn’t exist.
-*/
