@@ -473,6 +473,7 @@ int main(int argc, char *argv[])
             //need to clean up
         }
         join_threads:
+        printf("Joining threads");
         thread_data_t *e = NULL;
         thread_data_t* next = NULL;
         SLIST_FOREACH_SAFE(e, &head, entries,next)
