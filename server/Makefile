@@ -12,14 +12,14 @@ TARGET = aesdsocket
 CFLAGS  = -Werror -Wall
 
 #selecting all needed source files
-SRC_FILES = *.c
+SRC_FILES = aesdsocket.c
 
 all: aesdsocket
 #clean:
 #	rm -f *.o writer
 
 $(TARGET): $(TARGET).c
-	$(CROSS_COMPILE)$(CC) $(CFLAGS) $(SRC_FILES) -o $(TARGET)
+	$(CROSS_COMPILE)$(CC) $(CFLAGS) $(SRC_FILES) -o $(TARGET) -pthread -lrt
 	
 	
 clean:

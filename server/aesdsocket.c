@@ -17,6 +17,7 @@
 #include <time.h>
 #include <pthread.h>
 #include "queue.h"
+#include <string.h>
 
 
 #define MYPORT "9000"  // the port users will be connecting to
@@ -26,6 +27,20 @@
 bool signal_found = false;
 bool reading = false;
 int sockfd;
+
+
+
+int time_elasped = 0;
+int time_written = 0;
+
+int time_count;
+
+int num_thread;
+
+struct itimerspec ts;
+
+
+char time_buff[80]; 
 
 
 typedef struct thread_data_s thread_data_t;
@@ -39,6 +54,8 @@ struct thread_data_s{
      */
 
     pthread_t tid;
+
+    int local_fd;
 
     //new fd for each open socket
     int sfd;
@@ -54,8 +71,7 @@ struct thread_data_s{
 
 };
 
-thread_data_t *thread_list = NULL;
-
+//thread_data_t *thread_list = NULL;
 
 
 
@@ -127,7 +143,9 @@ void* thread_foo(void *thread_param)
     // printf("server: got connection from %s\n", s);
 
     //int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, S_IRWXU |  S_IRWXG | S_IRWXO );
-    int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, 755);
+    // int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, 777);
+    // if(local_fd < 0)
+    //     perror("open()");
     printf("file opened\n");
     int max_buf_size = BUF_SIZE;
     char *buf = (char *)malloc(max_buf_size * sizeof(char));
@@ -139,7 +157,7 @@ void* thread_foo(void *thread_param)
     {
         if(recv(thread_func_args->sfd, buf + (num_of_relloc * BUF_SIZE), BUF_SIZE, 0) == - 1){
             //log errors
-            printf("recv() failed\n");
+            perror("recv()");
         }
 
         return_idx = search_for_return(buf + (num_of_relloc * BUF_SIZE), BUF_SIZE);
@@ -152,50 +170,67 @@ void* thread_foo(void *thread_param)
         else
         {
             printf("writing to file\n");
-            write_to_file(local_fd, buf, max_buf_size - (BUF_SIZE - return_idx));
+            write_to_file(thread_func_args->local_fd, buf, max_buf_size - (BUF_SIZE - return_idx));
             ret_found = true;
             break;
         }
     }
 
     int num_of_bytes = BUF_SIZE;
-    lseek(local_fd, 0, SEEK_SET);
+
+    if (lseek(thread_func_args->local_fd, 0, SEEK_SET) < 0)
+        perror("lseek()");
+
     char read_buf[BUF_SIZE];
 
     printf("Attemping to read and send BUF_SIZE\n");
     while(num_of_bytes == BUF_SIZE)
     {
-        num_of_bytes = read(local_fd, read_buf, BUF_SIZE);
+        num_of_bytes = read(thread_func_args->local_fd, read_buf, BUF_SIZE);
+        if(num_of_bytes == -1)
+            perror("read()");
         printf("num of bytes: %d\n", num_of_bytes);
         send(thread_func_args->sfd , read_buf, num_of_bytes, 0);
     }
-
-    close(local_fd);  // parent doesn't need this
     
     free(buf);
     reading = false;
-
     thread_func_args->thread_complete_success =  true;
 
     printf("thread completed\n");
 
-    return thread_param;
+
+    if(close(thread_func_args->sfd) < 0)
+        perror("close()");
+
+  
+    //return thread_param;
+    return 0;
 
 }
 
 
-// void alarm_handler (int signum)
-// {
-//     printf ("10 Seconds passed\n");
+void timer_handler()
+{
+    printf ("10 Seconds passed\n");
 
-//     //call
-//     /*       
-//     #include <time.h>
+    time_elasped++;
 
-//        size_t strftime(char *restrict s, size_t max,
-//                        const char *restrict format,
-//                        const struct tm *restrict tm);*/
-// }
+
+    // size_t strftime(char *restrict s, size_t max,
+    //                    const char *restrict format,
+    //                    const struct tm *restrict tm);
+    time_t rawtime;
+    struct tm *info;
+    //char buffer[80];
+
+    time( &rawtime );
+    char time_val[40];
+    info = localtime( &rawtime );
+    strftime(time_val,40,"%Y/%m/%d - %H:%M:%S", info);
+    sprintf(time_buff,"timestamp: %s\n",time_val);
+    //printf("Formatted date & time : |%s|\n", time_buff);
+}
 
 
 
@@ -318,20 +353,62 @@ int main(int argc, char *argv[])
 
 
     /*Fix this shit*/
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-
+    // signal(SIGINT, signal_handler);
+    // signal(SIGTERM, signal_handler);
+    //signal(SIGALRM,timer_handler);
 
     /*addr_size = sizeof their_addr;
     new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);*/
 
-    //signal (SIGALRM, alarm_handler);
+    // signal (SIGALRM, alarm_handler);
 
-    //creating an alert for 10 seconds
-    //alarm (10);
+    // //creating an alert for 10 seconds
+    // alarm (10);
+
+
+    struct sigaction sig_interrupt;
+
+    sig_interrupt.sa_handler = signal_handler;
+    sig_interrupt.sa_flags = 0;
+    sigset_t empty1;
+    sigemptyset(&empty1);
+    sig_interrupt.sa_mask = empty1;
+    sigaction(SIGINT | SIGTERM, &sig_interrupt, NULL);
+
+
+    struct sigaction sig_timer;
+    sig_timer.sa_handler = timer_handler;
+    sig_timer.sa_flags = 0;
+    sigset_t empty;
+    sigemptyset(&empty);
+    sig_timer.sa_mask = empty;
+    sigaction (SIGALRM, &sig_timer, NULL);
+
+    timer_t timer;
+    int ret;
+
+    ret = timer_create (CLOCK_REALTIME , NULL, &timer);
+    if (ret)
+        perror ("timer_create");
+
+    // struct itimerspec ts;
+
+    ts.it_interval.tv_sec = 10;
+    ts.it_interval.tv_nsec = 0;
+    ts.it_value.tv_sec = 10;
+    ts.it_value.tv_nsec = 0;
+
+    ret = timer_settime (timer, 0, &ts, NULL);
+    if (ret)
+        perror ("timer_settime");
+
 
     SLIST_HEAD(slisthead, thread_data_s) head;
     SLIST_INIT(&head);
+
+    int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, 777);
+    if(local_fd < 0)
+        perror("open()");
 
     while(!signal_found) {  // main accept() loop
 
@@ -346,29 +423,20 @@ int main(int argc, char *argv[])
             printf("in accept fail with int\n");
             if(errno == EINTR)
             {
-                break;
+                goto join_threads;
             }
             perror("accept");
             continue;
         }
 
 
-        SLIST_FOREACH(thread_list, &head, entries)
-        {
-            if(thread_list->thread_complete_success == true)
-            {
-                close(thread_list->sfd);
-                pthread_join(thread_list->tid, NULL);
-                printf("removed\n");
-                //need to remove node 
-            }
-        }
 
         printf("before malloc\n");
-
+        thread_data_t *thread_list = NULL;
         thread_list = malloc(sizeof(thread_data_t));
         thread_list->thread_complete_success = false;
         thread_list->sfd = new_fd;
+        thread_list->local_fd = local_fd;
         
 
         int ret = pthread_create(&thread_list->tid, NULL, thread_foo, thread_list);
@@ -376,15 +444,50 @@ int main(int argc, char *argv[])
         {
             SLIST_INSERT_HEAD(&head, thread_list, entries);
             printf("Thread created\n");
+            num_thread++;
         }
         else{
             printf("Thread not created\n");
+            perror("pthread_create()");
+
 
             //need to clean up
         }
+        join_threads:
+        thread_data_t *e = NULL;
+        thread_data_t* next = NULL;
+        SLIST_FOREACH_SAFE(e, &head, entries,next)
+        {
+            if(e->thread_complete_success == true)
+            {
+                pthread_join(e->tid, NULL);
+                printf("removed\n");
+                //need to remove node 
+                SLIST_REMOVE(&head, e, thread_data_s, entries);
+                num_thread--;
+                free(e);
+            }
+            e = NULL;
+        }
+        printf("Num thread %d\n",num_thread);
+        if(num_thread == 0)
+        {
+            if(time_elasped > time_written)
+            {
+                write_to_file(local_fd, time_buff, strlen(time_buff));
+                printf("updated time");
+                time_written++;
+            }
+            
+        }
     }
 
-    close(sockfd);
+    if(close(sockfd < 0) )
+        perror("close()");
+
+    if(close(local_fd) < 0) 
+        perror("close()");
+
     printf("server: closed connection from %s\n", s);
     unlink("/var/tmp/aesdsocketdata");
     return 0;
