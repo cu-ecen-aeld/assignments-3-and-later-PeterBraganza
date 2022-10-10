@@ -507,6 +507,8 @@ int main(int argc, char *argv[])
     if(close(local_fd) < 0) 
         perror("close()");
 
+    pthread_mutex_destroy(&mutex_lock);
+
     printf("server: closed connection from %s\n", s);
     unlink("/var/tmp/aesdsocketdata");
     return 0;
