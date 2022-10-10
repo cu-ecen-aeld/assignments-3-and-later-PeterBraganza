@@ -3,25 +3,24 @@
 
 #selecting complier
 CROSS_COMPILE=
-CC=gcc
+CC ?=$(CROSS_COMPILE)gcc
 
 #selecting Targer file
-TARGET = aesdsocket
+TARGET ?= aesdsocket
 
 #setting flags
-CFLAGS  = -Werror -Wall
+CFLAGS  ?= -Werror -Wall
+LDFLAGS ?= -pthread -lrt
 
 #selecting all needed source files
-SRC_FILES = aesdsocket.c
+SRC_FILES = $(TARGET).c
 
-all: aesdsocket
+all: $(TARGET)
 #clean:
 #	rm -f *.o writer
 
 $(TARGET): $(TARGET).c
-	$(CROSS_COMPILE)$(CC) $(CFLAGS) $(SRC_FILES) -o $(TARGET) -pthread -lrt
-	
-	
+	$(CC) $(CFLAGS) $(SRC_FILES) -o $(TARGET) $(LDFLAGS)
 clean:
 	rm -f *.o $(TARGET)
 	
