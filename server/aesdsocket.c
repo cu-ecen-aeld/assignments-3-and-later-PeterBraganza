@@ -45,6 +45,9 @@ char time_buff[80];
 
 typedef struct thread_data_s thread_data_t;
 
+
+pthread_mutex_t mutex_lock;
+
 struct thread_data_s{
     /*
      * adding other values your thread will need to manage
@@ -111,6 +114,8 @@ int search_for_return(char *buf, size_t buf_size)
 
 void write_to_file(int fd, void *buf, size_t buf_size)
 {
+
+    pthread_mutex_lock(&mutex_lock);
     ssize_t bytes_written = 0;
     int len = buf_size;
     
@@ -129,6 +134,8 @@ void write_to_file(int fd, void *buf, size_t buf_size)
         len -= bytes_written;
         buf = buf + bytes_written;
 	}
+
+    pthread_mutex_unlock(&mutex_lock);
 }
 
 
@@ -169,7 +176,7 @@ void* thread_foo(void *thread_param)
         }
         else
         {
-            printf("writing to file\n");
+            printf("writing to file\n");     
             write_to_file(thread_func_args->local_fd, buf, max_buf_size - (BUF_SIZE - return_idx));
             ret_found = true;
             break;
@@ -178,17 +185,21 @@ void* thread_foo(void *thread_param)
 
     int num_of_bytes = BUF_SIZE;
 
+    pthread_mutex_lock(&mutex_lock);
     if (lseek(thread_func_args->local_fd, 0, SEEK_SET) < 0)
         perror("lseek()");
+    pthread_mutex_unlock(&mutex_lock);
 
     char read_buf[BUF_SIZE];
 
     printf("Attemping to read and send BUF_SIZE\n");
     while(num_of_bytes == BUF_SIZE)
     {
+        pthread_mutex_lock(&mutex_lock);
         num_of_bytes = read(thread_func_args->local_fd, read_buf, BUF_SIZE);
         if(num_of_bytes == -1)
             perror("read()");
+        pthread_mutex_unlock(&mutex_lock);
         printf("num of bytes: %d\n", num_of_bytes);
         send(thread_func_args->sfd , read_buf, num_of_bytes, 0);
     }
@@ -409,6 +420,14 @@ int main(int argc, char *argv[])
     int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, 777);
     if(local_fd < 0)
         perror("open()");
+
+
+
+    ret= pthread_mutex_init(&mutex_lock,NULL);
+    if(ret != 0)
+    {
+        perror("\npthread_mutex_init");
+    }
 
     while(!signal_found) {  // main accept() loop
 
