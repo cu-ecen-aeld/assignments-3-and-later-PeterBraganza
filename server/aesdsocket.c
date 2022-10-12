@@ -11,10 +11,14 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <time.h>
+#include <pthread.h>
+#include "queue.h"
+#include <string.h>
+
 
 #define MYPORT "9000"  // the port users will be connecting to
 #define BACKLOG 10     // how many pending connections queue will hold
@@ -23,6 +27,55 @@
 bool signal_found = false;
 bool reading = false;
 int sockfd;
+
+
+
+int time_elasped = 0;
+int time_written = 0;
+
+int time_count;
+
+int num_thread;
+
+struct itimerspec ts;
+
+
+char time_buff[80]; 
+
+
+typedef struct thread_data_s thread_data_t;
+
+
+pthread_mutex_t mutex_lock;
+
+struct thread_data_s{
+    /*
+     * adding other values your thread will need to manage
+     * into this structure, use this structure to communicate
+     * between the start_thread_obtaining_mutex function and
+     * your thread implementation.
+     */
+
+    pthread_t tid;
+
+    int local_fd;
+
+    //new fd for each open socket
+    int sfd;
+
+    /**
+     * Set to true if the thread completed with success, false
+     * if an error occurred.
+     */
+    bool thread_complete_success;
+
+
+    SLIST_ENTRY(thread_data_s) entries;
+
+};
+
+//thread_data_t *thread_list = NULL;
+
 
 
 static void signal_handler()
@@ -61,6 +114,8 @@ int search_for_return(char *buf, size_t buf_size)
 
 void write_to_file(int fd, void *buf, size_t buf_size)
 {
+
+    pthread_mutex_lock(&mutex_lock);
     ssize_t bytes_written = 0;
     int len = buf_size;
     
@@ -79,6 +134,113 @@ void write_to_file(int fd, void *buf, size_t buf_size)
         len -= bytes_written;
         buf = buf + bytes_written;
 	}
+
+    pthread_mutex_unlock(&mutex_lock);
+}
+
+
+void* thread_foo(void *thread_param)
+{
+
+    struct thread_data_s* thread_func_args = (struct thread_data_s *) thread_param;
+    reading = true;
+    // inet_ntop(their_addr.ss_family,
+    //     get_in_addr((struct sockaddr *)&their_addr),
+    //     s, sizeof s);
+    // printf("server: got connection from %s\n", s);
+
+    //int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, S_IRWXU |  S_IRWXG | S_IRWXO );
+    // int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, 777);
+    // if(local_fd < 0)
+    //     perror("open()");
+    printf("file opened\n");
+    int max_buf_size = BUF_SIZE;
+    char *buf = (char *)malloc(max_buf_size * sizeof(char));
+    int return_idx = 0;
+    int num_of_relloc = 0;
+    bool ret_found = false;
+
+    while ( !ret_found ) //return not found
+    {
+        if(recv(thread_func_args->sfd, buf + (num_of_relloc * BUF_SIZE), BUF_SIZE, 0) == - 1){
+            //log errors
+            perror("recv()");
+        }
+
+        return_idx = search_for_return(buf + (num_of_relloc * BUF_SIZE), BUF_SIZE);
+        if(return_idx == -1)
+        {
+            max_buf_size += BUF_SIZE;
+            buf = (char *)realloc(buf, max_buf_size * sizeof(char));
+            num_of_relloc++;
+        }
+        else
+        {
+            printf("writing to file\n");     
+            write_to_file(thread_func_args->local_fd, buf, max_buf_size - (BUF_SIZE - return_idx));
+            ret_found = true;
+            break;
+        }
+    }
+
+    int num_of_bytes = BUF_SIZE;
+
+    pthread_mutex_lock(&mutex_lock);
+    if (lseek(thread_func_args->local_fd, 0, SEEK_SET) < 0)
+        perror("lseek()");
+    pthread_mutex_unlock(&mutex_lock);
+
+    char read_buf[BUF_SIZE];
+
+    printf("Attemping to read and send BUF_SIZE\n");
+    while(num_of_bytes == BUF_SIZE)
+    {
+        pthread_mutex_lock(&mutex_lock);
+        num_of_bytes = read(thread_func_args->local_fd, read_buf, BUF_SIZE);
+        if(num_of_bytes == -1)
+            perror("read()");
+        pthread_mutex_unlock(&mutex_lock);
+        printf("num of bytes: %d\n", num_of_bytes);
+        send(thread_func_args->sfd , read_buf, num_of_bytes, 0);
+    }
+    
+    free(buf);
+    reading = false;
+    thread_func_args->thread_complete_success =  true;
+
+    printf("thread completed\n");
+
+
+    if(close(thread_func_args->sfd) < 0)
+        perror("close()");
+
+  
+    //return thread_param;
+    return 0;
+
+}
+
+
+void timer_handler()
+{
+    printf ("10 Seconds passed\n");
+
+    time_elasped++;
+
+
+    // size_t strftime(char *restrict s, size_t max,
+    //                    const char *restrict format,
+    //                    const struct tm *restrict tm);
+    time_t rawtime;
+    struct tm *info;
+    //char buffer[80];
+
+    time( &rawtime );
+    char time_val[40];
+    info = localtime( &rawtime );
+    strftime(time_val,40,"%Y/%m/%d - %H:%M:%S", info);
+    sprintf(time_buff,"timestamp: %s\n",time_val);
+    //printf("Formatted date & time : |%s|\n", time_buff);
 }
 
 
@@ -97,6 +259,7 @@ int main(int argc, char *argv[])
     int rv;
     bool run_deamon = false;
     //char buf[BUF_SIZE];
+    printf("starting code\n");
 
     if(argc >= 2)
     {
@@ -200,105 +363,155 @@ int main(int argc, char *argv[])
     }
 
 
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-
+    /*Fix this shit*/
+    // signal(SIGINT, signal_handler);
+    // signal(SIGTERM, signal_handler);
+    //signal(SIGALRM,timer_handler);
 
     /*addr_size = sizeof their_addr;
     new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);*/
 
+    // signal (SIGALRM, alarm_handler);
+
+    // //creating an alert for 10 seconds
+    // alarm (10);
+
+
+    struct sigaction sig_interrupt;
+
+    sig_interrupt.sa_handler = signal_handler;
+    sig_interrupt.sa_flags = 0;
+    sigset_t empty1;
+    sigemptyset(&empty1);
+    sig_interrupt.sa_mask = empty1;
+    sigaction(SIGINT | SIGTERM, &sig_interrupt, NULL);
+
+
+    struct sigaction sig_timer;
+    sig_timer.sa_handler = timer_handler;
+    sig_timer.sa_flags = 0;
+    sigset_t empty;
+    sigemptyset(&empty);
+    sig_timer.sa_mask = empty;
+    sigaction (SIGALRM, &sig_timer, NULL);
+
+    timer_t timer;
+    int ret;
+
+    ret = timer_create (CLOCK_REALTIME , NULL, &timer);
+    if (ret)
+        perror ("timer_create");
+
+    // struct itimerspec ts;
+
+    ts.it_interval.tv_sec = 10;
+    ts.it_interval.tv_nsec = 0;
+    ts.it_value.tv_sec = 10;
+    ts.it_value.tv_nsec = 0;
+
+    ret = timer_settime (timer, 0, &ts, NULL);
+    if (ret)
+        perror ("timer_settime");
+
+
+    SLIST_HEAD(slisthead, thread_data_s) head;
+    SLIST_INIT(&head);
+
+    int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, 777);
+    if(local_fd < 0)
+        perror("open()");
+
+
+
+    ret= pthread_mutex_init(&mutex_lock,NULL);
+    if(ret != 0)
+    {
+        perror("\npthread_mutex_init");
+    }
+
     while(!signal_found) {  // main accept() loop
+
+        printf("inside while loop\n");
 
         sin_size = sizeof their_addr;
         //int num_of_bytes = 0;
+        printf("befored accepetd\n");
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
+        printf("afteraccepetd\n");
         if (new_fd == -1) {
             printf("in accept fail with int\n");
             if(errno == EINTR)
             {
-                break;
+                goto join_threads;
             }
             perror("accept");
             continue;
         }
-        reading = true;
-        inet_ntop(their_addr.ss_family,
-            get_in_addr((struct sockaddr *)&their_addr),
-            s, sizeof s);
-        printf("server: got connection from %s\n", s);
 
-        int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, S_IRWXU |  S_IRWXG | S_IRWXO );
-        printf("file opened\n");
-        int max_buf_size = BUF_SIZE;
-        char *buf = (char *)malloc(max_buf_size * sizeof(char));
-        int return_idx = 0;
-        int num_of_relloc = 0;
-        bool ret_found = false;
 
-        while ( !ret_found ) //return not found
+
+        printf("before malloc\n");
+        thread_data_t *thread_list = NULL;
+        thread_list = malloc(sizeof(thread_data_t));
+        thread_list->thread_complete_success = false;
+        thread_list->sfd = new_fd;
+        thread_list->local_fd = local_fd;
+        
+
+        int ret = pthread_create(&thread_list->tid, NULL, thread_foo, thread_list);
+        if (!ret)
         {
-            if(recv(new_fd, buf + (num_of_relloc * BUF_SIZE), BUF_SIZE, 0) == - 1){
-                //log errors
-                printf("recv() failed\n");
-            }
-
-            return_idx = search_for_return(buf + (num_of_relloc * BUF_SIZE), BUF_SIZE);
-            if(return_idx == -1)
-            {
-                max_buf_size += BUF_SIZE;
-                buf = (char *)realloc(buf, max_buf_size * sizeof(char));
-                num_of_relloc++;
-            }
-            else
-            {
-                printf("writing to file\n");
-                write_to_file(local_fd, buf, max_buf_size - (BUF_SIZE - return_idx));
-                ret_found = true;
-                break;
-            }
+            SLIST_INSERT_HEAD(&head, thread_list, entries);
+            printf("Thread created\n");
+            num_thread++;
         }
+        else{
+            printf("Thread not created\n");
+            perror("pthread_create()");
 
-        int num_of_bytes = BUF_SIZE;
-        lseek(local_fd, 0, SEEK_SET);
-        char read_buf[BUF_SIZE];
 
-        printf("Attemping to read and send BUF_SIZE\n");
-        while(num_of_bytes == BUF_SIZE)
+            //need to clean up
+        }
+        join_threads:
+        printf("Joining threads");
+        thread_data_t *e = NULL;
+        thread_data_t* next = NULL;
+        SLIST_FOREACH_SAFE(e, &head, entries,next)
         {
-            num_of_bytes = read(local_fd, read_buf, BUF_SIZE);
-            printf("num of bytes: %d\n", num_of_bytes);
-            send(new_fd , read_buf, num_of_bytes, 0);
+            if(e->thread_complete_success == true)
+            {
+                pthread_join(e->tid, NULL);
+                printf("removed\n");
+                //need to remove node 
+                SLIST_REMOVE(&head, e, thread_data_s, entries);
+                num_thread--;
+                free(e);
+            }
+            e = NULL;
         }
-        printf("Sent\n");
-
-        close(local_fd);  // parent doesn't need this
-        close(new_fd);
-        printf("file closed\n");
-        free(buf);
-        printf("buf freed\n");
-        printf("signal found: %d", signal_found);
-        printf("buf freed\n");
-        reading = false;
+        printf("Num thread %d\n",num_thread);
+        if(num_thread == 0)
+        {
+            if(time_elasped > time_written)
+            {
+                write_to_file(local_fd, time_buff, strlen(time_buff));
+                printf("updated time");
+                time_written++;
+            }
+            
+        }
     }
 
-    close(sockfd);
+    if(close(sockfd < 0) )
+        perror("close()");
+
+    if(close(local_fd) < 0) 
+        perror("close()");
+
+    pthread_mutex_destroy(&mutex_lock);
+
     printf("server: closed connection from %s\n", s);
     unlink("/var/tmp/aesdsocketdata");
     return 0;
 }
 
-
-
-
-
-
-
-/*
- b. Opens a stream socket bound to port 9000, failing and returning -1 if any of the socket connection steps fail.
-
-     c. Listens for and accepts a connection
-
-     d. Logs message to the syslog “Accepted connection from xxx” where XXXX is the IP address of the connected client. 
-
-     e. Receives data over the connection and appends to file /var/tmp/aesdsocketdata, creating this file if it doesn’t exist.
-*/
