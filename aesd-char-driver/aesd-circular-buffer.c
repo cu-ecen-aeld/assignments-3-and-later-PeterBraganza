@@ -29,22 +29,21 @@
 struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct aesd_circular_buffer *buffer,
             size_t char_offset, size_t *entry_offset_byte_rtn )
 {
-    /**
-    * TODO: implement per description
-    */
 
-    //peform checks here 
+    if(buffer == NULL)
+        return NULL;
 
-    for (int i = 0; i < 10; i++)
+
+    for (int i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
     {
-        if ((buffer->entry[(buffer->out_offs + i) % 10].size) - 1 >= char_offset)
+        if ((buffer->entry[(buffer->out_offs + i) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED].size) - 1 >= char_offset)
         {
             *entry_offset_byte_rtn = char_offset; 
-            return &buffer->entry[(buffer->out_offs + i) % 10];
+            return &buffer->entry[(buffer->out_offs + i) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED];
         }
         else 
         {
-            char_offset -= (buffer->entry[(buffer->out_offs + i) % 10].size);
+            char_offset -= (buffer->entry[(buffer->out_offs + i) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED].size);
         }
     }
         
@@ -61,22 +60,21 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 */
 void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
-    /**
-    * TODO: implement per description
-    */
+
+    //Enqueue the entry
+    buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
+    buffer->entry[buffer->in_offs].size = add_entry->size;
+
+    buffer->in_offs = (buffer->in_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+
+    //Increment out_offs only when buffer is full
+    if(buffer->full)
+        buffer->out_offs = ((buffer->out_offs) + 1 )% AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+
+    //setting the full flag is in_offs and out_offs is equals
     if (buffer->in_offs == buffer->out_offs)
-    {
-        buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
-        buffer->entry[buffer->in_offs].size = add_entry->size;
-        buffer->out_offs = ((buffer->out_offs) + 1 )% 10;
-        buffer->in_offs = ((buffer->in_offs) + 1 )% 10;
-    }
-    else
-    {
-        buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
-        buffer->entry[buffer->in_offs].size = add_entry->size;
-        buffer->in_offs = (buffer->in_offs + 1) % 10;
-    }
+        buffer->full = true;
+
 }
 
 /**
