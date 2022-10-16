@@ -32,6 +32,23 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     /**
     * TODO: implement per description
     */
+
+    //peform checks here 
+
+    for (int i = 0; i < 10; i++)
+    {
+        if ((buffer->entry[(buffer->out_offs + i) % 10].size) - 1 >= char_offset)
+        {
+            *entry_offset_byte_rtn = char_offset; 
+            return &buffer->entry[(buffer->out_offs + i) % 10];
+        }
+        else 
+        {
+            char_offset -= (buffer->entry[(buffer->out_offs + i) % 10].size);
+        }
+    }
+        
+    
     return NULL;
 }
 
@@ -47,6 +64,19 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     /**
     * TODO: implement per description
     */
+    if (buffer->in_offs == buffer->out_offs)
+    {
+        buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
+        buffer->entry[buffer->in_offs].size = add_entry->size;
+        buffer->out_offs = ((buffer->out_offs) + 1 )% 10;
+        buffer->in_offs = ((buffer->in_offs) + 1 )% 10;
+    }
+    else
+    {
+        buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
+        buffer->entry[buffer->in_offs].size = add_entry->size;
+        buffer->in_offs = (buffer->in_offs + 1) % 10;
+    }
 }
 
 /**
