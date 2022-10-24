@@ -28,14 +28,12 @@
 
 struct aesd_dev
 {
-    /**
-     * TODO: Add structure(s) and locks needed to complete assignment requirements
-     */
-    struct aesd_circular_buffer aesd_circular_buf;
-    struct aesd_buffer_entry aesd_working_buf;
-    struct mutex lock;
     
-    struct cdev cdev;     /* Char device structure      */
+    struct aesd_circular_buffer aesd_circular_buf;  /*Circular buffer which acts as file*/
+    struct aesd_buffer_entry aesd_working_buf;      /*buffer entry used to store pending data in case '\n' not found*/
+    struct mutex lock;                              /*Mutex used for locking */
+    
+    struct cdev cdev;                               /* Char device structure*/
 };
 
 

@@ -35,23 +35,15 @@ bool signal_found = false;
 bool reading = false;
 int sockfd;
 
-
-
 int time_elasped = 0;
 int time_written = 0;
-
 int time_count;
-
 int num_thread;
-
 struct itimerspec ts;
-
 
 char time_buff[80]; 
 
-
 typedef struct thread_data_s thread_data_t;
-
 
 pthread_mutex_t mutex_lock;
 

@@ -6,7 +6,10 @@
  * Linux Device Drivers example code.
  *
  * @author Dan Walkes
+ * 
  * @date 2019-10-22
+ * Peter Braganza - Modification done for Char driver implementation
+ * @date 08/23/2022
  * @copyright Copyright (c) 2019
  *
  */
@@ -20,10 +23,16 @@
 
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
+
+#define KMALLOC_ERROR_CHECK(x) \
+        if(x == NULL) \
+            goto EXIT;
+
+
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
-MODULE_AUTHOR("Your Name Here"); /** TODO: fill in your name **/
+MODULE_AUTHOR("Peter Braganza"); 
 MODULE_LICENSE("Dual BSD/GPL");
 
 struct aesd_dev aesd_device;
@@ -31,38 +40,40 @@ struct aesd_dev aesd_device;
 int aesd_open(struct inode *inode, struct file *filp)
 {
     PDEBUG("open");
-    /**
-     * TODO: handle open
-     */
-
     filp->private_data = container_of(inode->i_cdev, struct aesd_dev, cdev);
+
     return 0;
 }
 
 int aesd_release(struct inode *inode, struct file *filp)
 {
     PDEBUG("release");
-    /**
-     * TODO: handle release
-     */
+
     return 0;
 }
 
+
+/**
+ * @param filp is the file pointer to the char driver 
+ * @param buf pointer to user buffer at which data is to be written from driver
+ * @param count number of bytes to be read from driver
+ * @param f_pos is the offset at which data is to be read
+ * 
+ * @brief wrill read count number of bytes from char driver and store it in buf.
+ * @return number of bytes read
+*/
 ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos)
 {
     ssize_t retval = 0;
-    struct aesd_dev *ptr = filp->private_data;
     struct aesd_buffer_entry *dequeed_buf;
     size_t entry_offset_byte = 0;
     size_t bytes_written = 0;
     char *write_buf = NULL;
+    size_t bytes_not_written = 0;
+    struct aesd_dev *ptr = filp->private_data;
 
     PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
-    /**
-     * TODO: handle read
-     */
-
 
     if(mutex_lock_interruptible(&ptr->lock) != 0)
     {
@@ -87,18 +98,21 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         bytes_written = dequeed_buf->size - entry_offset_byte;
     }
 
-    copy_to_user(buf, write_buf, bytes_written);
-    *f_pos += bytes_written;
+    bytes_not_written = copy_to_user(buf, write_buf, bytes_written);
+    *f_pos += bytes_written - bytes_not_written;
+    retval = bytes_written - bytes_not_written;
 
     mutex_unlock(&ptr->lock);
-
-    retval = bytes_written;
 
     return retval;
 }
 
-
-/* Returns the (position + 1) of '\n' if found. otherwise returns -1*/
+/**
+ * @param buf char buffer to be searched for '\n'
+ * @param len length of the buffer
+ * @brief used to find position of the return character in buffer
+ * @return Returns the (position + 1) of '\n' if found. otherwise returns -1
+*/
 int find_return_pos(char *buf, size_t len)
 {
     int i; 
@@ -112,39 +126,36 @@ int find_return_pos(char *buf, size_t len)
     return -1;
 }
 
+/**
+ * @param filp is the file pointer to the char driver 
+ * @param buf pointer to user buffer which contains data is to be written to driver
+ * @param count number of bytes to be written to driver
+ * @param f_pos is the offset at which data is to be written. Not used in out case
+ * @return number of bytes written
+*/
 ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
     //ssize_t retval = -ENOMEM;
-    ssize_t retval = 0;
+    ssize_t retval = 0, num_of_bytes_not_copied;
     int pos = 0;
     char *working_buf, *write_buf, *lost_buf;
     struct aesd_buffer_entry write_entry;
+    
     struct aesd_dev *ptr = filp->private_data;
 
     PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
-    /**
-     * TODO: handle write
-     */
 
-    
     if(mutex_lock_interruptible(&ptr->lock) != 0)
     {
         return -ENOMEM;
     }
    
     working_buf = (char *)kmalloc( count * sizeof(char), GFP_KERNEL);
-    if(working_buf == NULL)
-    {
-        retval = -ENOMEM;
-        mutex_unlock(&ptr->lock);
-        return -ENOMEM;
-        //return after freeing things 
-    }
+    KMALLOC_ERROR_CHECK(working_buf)
         
-
-    copy_from_user( working_buf, buf, count);
-
+    num_of_bytes_not_copied = copy_from_user( working_buf, buf, count);
+    //Use num_of_bytes_not_copied 
 
     while( pos != -1)
     {
@@ -154,12 +165,13 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             if(ptr->aesd_working_buf.size)
             {
                 write_buf = (char *)krealloc(ptr->aesd_working_buf.buffptr , (pos + ptr->aesd_working_buf.size) * sizeof(char), GFP_KERNEL);
+                KMALLOC_ERROR_CHECK(working_buf)
             }
             else
             {
                 write_buf = (char *)kmalloc( (pos) * sizeof(char), GFP_KERNEL);
+                KMALLOC_ERROR_CHECK(working_buf)
             }
-            //TODO: handle for data in aesd_working_buf
             memcpy(write_buf + ptr->aesd_working_buf.size, working_buf + retval, pos);
             write_entry.buffptr = write_buf;
             write_entry.size = pos + ptr->aesd_working_buf.size;
@@ -176,14 +188,15 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             if(ptr->aesd_working_buf.size)
             {
                 write_buf = (char *)krealloc(ptr->aesd_working_buf.buffptr , ((count - retval) + ptr->aesd_working_buf.size) * sizeof(char) , GFP_KERNEL);
+                KMALLOC_ERROR_CHECK(working_buf)
             }
             else
             {
                 write_buf = (char *)kmalloc( (count - retval) * sizeof(char), GFP_KERNEL);
+                KMALLOC_ERROR_CHECK(working_buf)
             }
 
             memcpy(write_buf + ptr->aesd_working_buf.size, working_buf + retval, count - retval);
-            //Need to think about use of write_buf as it gets freeeeeeed after exit from from funtion 
             ptr->aesd_working_buf.buffptr = write_buf;
             ptr->aesd_working_buf.size += count - retval;
             retval += (count - retval);
@@ -193,10 +206,12 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     // kfree(write_buf);
     kfree(working_buf);
     
-
     mutex_unlock(&ptr->lock);
-
     return retval;
+
+    EXIT:
+    mutex_unlock(&ptr->lock);
+    return -ENOMEM;
 }
 
 
@@ -237,14 +252,10 @@ int aesd_init_module(void)
     }
     memset(&aesd_device,0,sizeof(struct aesd_dev));
 
-    /**
-     * TODO: initialize the AESD specific portion of the device
-     */
 
     //Initialize mutex
     mutex_init(&aesd_device.lock);
    
-
     result = aesd_setup_cdev(&aesd_device);
 
     if( result ) {
@@ -256,22 +267,24 @@ int aesd_init_module(void)
 
 void aesd_cleanup_module(void)
 {
+    int out_offs, in_offs;
     dev_t devno = MKDEV(aesd_major, aesd_minor);
-
+    //out_offs = aesd_device.aesd_circular_buf.entry[aesd_device.aesd_circular_buf.out_offs]
+    out_offs = aesd_device.aesd_circular_buf.out_offs;
+    in_offs = aesd_device.aesd_circular_buf.in_offs;
     cdev_del(&aesd_device.cdev);
 
-    /**
-     * TODO: cleanup AESD specific poritions here as necessary
-     */
+    //destroying circular buffer
+    for ( ; out_offs != in_offs  || aesd_device.aesd_circular_buf.full ; out_offs = (out_offs+1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        kfree(aesd_device.aesd_circular_buf.entry[out_offs].buffptr);
+        aesd_device.aesd_circular_buf.full = false;
+    }
+
     mutex_destroy(&aesd_device.lock);
 
     unregister_chrdev_region(devno, 1);
 }
-
-
-
-
-
 
 module_init(aesd_init_module);
 module_exit(aesd_cleanup_module);
