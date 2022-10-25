@@ -23,28 +23,27 @@
 #define MYPORT "9000"  // the port users will be connecting to
 #define BACKLOG 10     // how many pending connections queue will hold
 #define BUF_SIZE 1024
+#define USE_AESD_CHAR_DEVICE 1
+
+#if USE_AESD_CHAR_DEVICE
+#define AESD_DATA_FILE "/dev/aesdchar"
+#else
+#define AESD_DATA_FILE "/var/tmp/aesdsocketdata"
+#endif
 
 bool signal_found = false;
 bool reading = false;
 int sockfd;
 
-
-
 int time_elasped = 0;
 int time_written = 0;
-
 int time_count;
-
 int num_thread;
-
 struct itimerspec ts;
-
 
 char time_buff[80]; 
 
-
 typedef struct thread_data_s thread_data_t;
-
 
 pthread_mutex_t mutex_lock;
 
@@ -84,7 +83,9 @@ static void signal_handler()
     if(!reading)
     {
         close(sockfd);
+        #ifndef USE_AESD_CHAR_DEVICE
         unlink("/var/tmp/aesdsocketdata");
+        #endif
         exit(0);
     }
     signal_found = true;
@@ -115,7 +116,9 @@ int search_for_return(char *buf, size_t buf_size)
 void write_to_file(int fd, void *buf, size_t buf_size)
 {
 
+    #ifndef USE_AESD_CHAR_DEVICE
     pthread_mutex_lock(&mutex_lock);
+    #endif
     ssize_t bytes_written = 0;
     int len = buf_size;
     
@@ -135,7 +138,12 @@ void write_to_file(int fd, void *buf, size_t buf_size)
         buf = buf + bytes_written;
 	}
 
+    #ifndef USE_AESD_CHAR_DEVICE
     pthread_mutex_unlock(&mutex_lock);
+    #endif
+
+
+
 }
 
 
@@ -150,9 +158,9 @@ void* thread_foo(void *thread_param)
     // printf("server: got connection from %s\n", s);
 
     //int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, S_IRWXU |  S_IRWXG | S_IRWXO );
-    // int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, 777);
-    // if(local_fd < 0)
-    //     perror("open()");
+    int local_fd = open(AESD_DATA_FILE, O_CREAT | O_RDWR | O_APPEND, 755);
+    if(local_fd < 0)
+        perror("open()");
     printf("file opened\n");
     int max_buf_size = BUF_SIZE;
     char *buf = (char *)malloc(max_buf_size * sizeof(char));
@@ -177,7 +185,7 @@ void* thread_foo(void *thread_param)
         else
         {
             printf("writing to file\n");     
-            write_to_file(thread_func_args->local_fd, buf, max_buf_size - (BUF_SIZE - return_idx));
+            write_to_file(local_fd, buf, max_buf_size - (BUF_SIZE - return_idx));
             ret_found = true;
             break;
         }
@@ -185,21 +193,30 @@ void* thread_foo(void *thread_param)
 
     int num_of_bytes = BUF_SIZE;
 
+    #ifndef USE_AESD_CHAR_DEVICE
     pthread_mutex_lock(&mutex_lock);
+
     if (lseek(thread_func_args->local_fd, 0, SEEK_SET) < 0)
         perror("lseek()");
+
     pthread_mutex_unlock(&mutex_lock);
+    #endif
 
     char read_buf[BUF_SIZE];
 
     printf("Attemping to read and send BUF_SIZE\n");
-    while(num_of_bytes == BUF_SIZE)
+
+    while(num_of_bytes != 0)
     {
+        #ifndef USE_AESD_CHAR_DEVICE
         pthread_mutex_lock(&mutex_lock);
-        num_of_bytes = read(thread_func_args->local_fd, read_buf, BUF_SIZE);
+        #endif
+        num_of_bytes = read(local_fd, read_buf, BUF_SIZE);
         if(num_of_bytes == -1)
             perror("read()");
+        #ifndef USE_AESD_CHAR_DEVICE
         pthread_mutex_unlock(&mutex_lock);
+        #endif
         printf("num of bytes: %d\n", num_of_bytes);
         send(thread_func_args->sfd , read_buf, num_of_bytes, 0);
     }
@@ -210,6 +227,8 @@ void* thread_foo(void *thread_param)
 
     printf("thread completed\n");
 
+    if(close(local_fd) < 0) 
+        perror("close()");
 
     if(close(thread_func_args->sfd) < 0)
         perror("close()");
@@ -258,6 +277,7 @@ int main(int argc, char *argv[])
     char s[INET6_ADDRSTRLEN];
     int rv;
     bool run_deamon = false;
+    int ret;
     //char buf[BUF_SIZE];
     printf("starting code\n");
 
@@ -269,10 +289,7 @@ int main(int argc, char *argv[])
         }
     }
 
-
-
     // first, load up address structs with getaddrinfo():
-
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;  // use IPv4 or IPv6, whichever
     hints.ai_socktype = SOCK_STREAM;
@@ -362,21 +379,6 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-
-    /*Fix this shit*/
-    // signal(SIGINT, signal_handler);
-    // signal(SIGTERM, signal_handler);
-    //signal(SIGALRM,timer_handler);
-
-    /*addr_size = sizeof their_addr;
-    new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &addr_size);*/
-
-    // signal (SIGALRM, alarm_handler);
-
-    // //creating an alert for 10 seconds
-    // alarm (10);
-
-
     struct sigaction sig_interrupt;
 
     sig_interrupt.sa_handler = signal_handler;
@@ -387,6 +389,7 @@ int main(int argc, char *argv[])
     sigaction(SIGINT | SIGTERM, &sig_interrupt, NULL);
 
 
+    #ifndef USE_AESD_CHAR_DEVICE
     struct sigaction sig_timer;
     sig_timer.sa_handler = timer_handler;
     sig_timer.sa_flags = 0;
@@ -394,9 +397,10 @@ int main(int argc, char *argv[])
     sigemptyset(&empty);
     sig_timer.sa_mask = empty;
     sigaction (SIGALRM, &sig_timer, NULL);
+    
 
     timer_t timer;
-    int ret;
+    
 
     ret = timer_create (CLOCK_REALTIME , NULL, &timer);
     if (ret)
@@ -412,14 +416,13 @@ int main(int argc, char *argv[])
     ret = timer_settime (timer, 0, &ts, NULL);
     if (ret)
         perror ("timer_settime");
+    #endif
 
 
     SLIST_HEAD(slisthead, thread_data_s) head;
     SLIST_INIT(&head);
 
-    int local_fd = open("/var/tmp/aesdsocketdata", O_CREAT | O_RDWR | O_APPEND, 777);
-    if(local_fd < 0)
-        perror("open()");
+
 
 
 
@@ -455,7 +458,7 @@ int main(int argc, char *argv[])
         thread_list = malloc(sizeof(thread_data_t));
         thread_list->thread_complete_success = false;
         thread_list->sfd = new_fd;
-        thread_list->local_fd = local_fd;
+        //thread_list->local_fd = local_fd;
         
 
         int ret = pthread_create(&thread_list->tid, NULL, thread_foo, thread_list);
@@ -490,28 +493,36 @@ int main(int argc, char *argv[])
             e = NULL;
         }
         printf("Num thread %d\n",num_thread);
+
+        #ifndef USE_AESD_CHAR_DEVICE
         if(num_thread == 0)
         {
             if(time_elasped > time_written)
             {
+                int local_fd = open(AESD_DATA_FILE, O_CREAT | O_RDWR | O_APPEND, 755);
+                if(local_fd < 0)
+                    perror("open()");
                 write_to_file(local_fd, time_buff, strlen(time_buff));
                 printf("updated time");
+                if(close(local_fd) < 0) 
+                    perror("close()");
                 time_written++;
             }
-            
         }
+        #endif
     }
 
     if(close(sockfd < 0) )
         perror("close()");
 
-    if(close(local_fd) < 0) 
-        perror("close()");
+
 
     pthread_mutex_destroy(&mutex_lock);
 
     printf("server: closed connection from %s\n", s);
+    #ifndef USE_AESD_CHAR_DEVICE
     unlink("/var/tmp/aesdsocketdata");
+    #endif
     return 0;
 }
 
