@@ -18,6 +18,8 @@
 #include <pthread.h>
 #include "queue.h"
 #include <string.h>
+#include <sys/ioctl.h>
+#include "../aesd-char-driver/aesd_ioctl.h"
 
 
 #define MYPORT "9000"  // the port users will be connecting to
@@ -121,7 +123,28 @@ void write_to_file(int fd, void *buf, size_t buf_size)
     #endif
     ssize_t bytes_written = 0;
     int len = buf_size;
+    char *sock_seek = "AESDCHAR_IOCSEEKTO:";
+    uint32_t write_cmd, write_cmd_offset;
+    struct aesd_seekto seekto;
     
+    #ifdef USE_AESD_CHAR_DEVICE
+    if(strncmp((const char *)buf, (const char *)sock_seek, strlen(sock_seek)) == 0)
+    {
+        sscanf( buf, "AESDCHAR_IOCSEEKTO:%d,%d", &write_cmd, &write_cmd_offset);
+        seekto.write_cmd = write_cmd;
+        seekto.write_cmd_offset = write_cmd_offset;
+        int retval = ioctl(fd, AESDCHAR_IOCSEEKTO, &seekto);
+        if(retval == -1)
+            perror("ioctl");
+            
+        printf("ioctl retval: %d\n", retval);
+        printf("Called ioctl write_cmd: %d, write_cmd_offset: %d\n", write_cmd, write_cmd_offset);
+    }
+    else
+    {
+    #endif
+
+
 	while ( len != 0 )
 	{
 		bytes_written = write (fd, buf , len);
@@ -137,7 +160,9 @@ void write_to_file(int fd, void *buf, size_t buf_size)
         len -= bytes_written;
         buf = buf + bytes_written;
 	}
-
+    #ifdef USE_AESD_CHAR_DEVICE
+    }
+    #endif
     #ifndef USE_AESD_CHAR_DEVICE
     pthread_mutex_unlock(&mutex_lock);
     #endif
