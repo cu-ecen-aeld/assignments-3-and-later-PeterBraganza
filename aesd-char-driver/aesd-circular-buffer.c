@@ -68,12 +68,14 @@ char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const 
     if(buffer->full)
     {
         lost_buf = (char *)buffer->entry[buffer->out_offs].buffptr;
+        buffer->total_byte_count -= buffer->entry[buffer->out_offs].size;
         buffer->out_offs = ((buffer->out_offs) + 1 ) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
     }
 
     //Enqueue the entry
     buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
     buffer->entry[buffer->in_offs].size = add_entry->size;
+    buffer->total_byte_count += add_entry->size;
 
     buffer->in_offs = (buffer->in_offs + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
         
